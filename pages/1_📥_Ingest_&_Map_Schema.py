@@ -16,6 +16,20 @@ if st.button("💾 Save Git Snapshot"):
         ], capture_output=True, text=True)
         if result3.returncode == 0:
             st.success(f"Snapshot saved and pushed! Commit: {commit_msg}")
+        elif 'no upstream branch' in result3.stderr:
+            # Try to set upstream automatically
+            # Get current branch name
+            branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True)
+            branch_name = branch.stdout.strip()
+            result4 = subprocess.run([
+                "git", "push", "--set-upstream", "origin", branch_name
+            ], capture_output=True, text=True)
+            if result4.returncode == 0:
+                st.success(f"Snapshot saved and pushed (set upstream)! Commit: {commit_msg}")
+            else:
+                st.error(f"Git push (set-upstream) failed: {result4.stderr}")
+        elif result2.returncode == 1 and 'nothing to commit' in result2.stderr:
+            st.info("No changes to commit.")
         else:
             st.error(f"Git push failed: {result3.stderr}")
     except Exception as e:
