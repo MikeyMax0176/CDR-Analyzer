@@ -1,3 +1,32 @@
+st.markdown("---")
+st.subheader("🔒 Shutdown checklist")
+if st.button("Save & prepare to close"):
+    try:
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+        commit_msg = f"snapshot: {ts}"
+        # Add and commit
+        add = subprocess.run(["git", "add", "-A"], capture_output=True, text=True)
+        commit = subprocess.run(["git", "commit", "-m", commit_msg], capture_output=True, text=True)
+        # Push
+        push = subprocess.run(["git", "push"], capture_output=True, text=True)
+        # Backup branch
+        backup_branch = f"backup/{ts}"
+        branch = subprocess.run(["git", "branch", backup_branch], capture_output=True, text=True)
+        push_branch = subprocess.run(["git", "push", "-u", "origin", backup_branch], capture_output=True, text=True)
+        # Tag
+        tag = f"snapshot-{ts}"
+        tag_create = subprocess.run(["git", "tag", "-a", tag, "-m", f"workspace snapshot {ts}"], capture_output=True, text=True)
+        push_tag = subprocess.run(["git", "push", "origin", tag], capture_output=True, text=True)
+        # Lockfile
+        freeze = subprocess.run(["pip", "freeze"], capture_output=True, text=True)
+        with open("requirements.lock.txt", "w") as f:
+            f.write(freeze.stdout)
+        add_lock = subprocess.run(["git", "add", "requirements.lock.txt"], capture_output=True, text=True)
+        commit_lock = subprocess.run(["git", "commit", "-m", f"chore: add requirements.lock.txt ({ts})"], capture_output=True, text=True)
+        push_lock = subprocess.run(["git", "push"], capture_output=True, text=True)
+        st.success(f"Shutdown snapshot complete!\nBranch: {backup_branch}\nTag: {tag}")
+    except Exception as e:
+        st.error(f"Shutdown checklist failed: {e}")
 import subprocess
 import datetime
 st.markdown("---")

@@ -1,3 +1,43 @@
+import re
+
+def normalize_msisdn(x):
+    if pd.isnull(x) or str(x).strip() == '':
+        return None
+    digits = re.sub(r'\D', '', str(x))
+    if len(digits) == 10:
+        digits = '1' + digits
+    return digits if digits else None
+def read_any(up):
+    import pandas as pd
+    import io
+    name = getattr(up, 'name', '')
+    ext = name.split('.')[-1].lower() if '.' in name else ''
+    up.seek(0)
+    if ext == 'tsv':
+        return pd.read_csv(up, sep='\t', low_memory=False)
+    else:
+        return pd.read_csv(up, sep=',', low_memory=False)
+
+def coerce_types(df, mapping):
+    # mapping: {canonical: source_col}
+    import pandas as pd
+    if not mapping:
+        return df.copy()
+    # Only keep columns in mapping values that exist in df
+    mapping = {k: v for k, v in mapping.items() if v in df.columns}
+    canon = df.rename(columns={v: k for k, v in mapping.items()})
+    # Keep originals if present
+    for col in ['caller', 'callee']:
+        src = mapping.get(col)
+        if src and src in df.columns:
+            canon[f'{col}_raw'] = df[src]
+    # Normalize caller/callee
+    for col in ['caller', 'callee']:
+        if col in canon.columns:
+            canon[col] = canon[col].apply(normalize_msisdn)
+    # Reorder columns to canonical order if possible
+    canon = canon[[k for k in mapping.keys() if k in canon.columns] + [c for c in canon.columns if c.endswith('_raw')]]
+    return canon
 import pandas as pd
 import numpy as np
 from typing import Dict, List

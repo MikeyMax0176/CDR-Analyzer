@@ -1,3 +1,6 @@
+import json
+from cdr_toolkit.ingest import read_any, coerce_types
+from cdr_toolkit.schemas import CANONICAL_COLUMNS
 import streamlit as st
 import subprocess
 import datetime
@@ -97,6 +100,35 @@ mapping_json = st.text_area(
     value=str(st.session_state.get('mapping', {})),
     help="Paste or edit your column mapping here as a JSON dictionary. Example: {'start_time': 'Start', 'caller': 'From', 'callee': 'To', 'CGI': 'CellTower', 'IP': 'IPAddress'}"
 )
+
+# --- Apply mapping button ---
+if uploaded and st.button("✔️ Apply mapping"):
+    try:
+        try:
+            mapping = json.loads(mapping_json)
+        except Exception as e:
+            st.error(f"Invalid JSON mapping: {e}")
+            mapping = None
+        if mapping is not None:
+            uploaded.seek(0)
+            raw = read_any(uploaded)
+            # Drop index-like columns
+            drop_cols = [c for c in raw.columns if c in ("Unnamed: 0", "index") or c.startswith("Unnamed:")]
+            if drop_cols:
+                raw = raw.drop(columns=drop_cols)
+            if not mapping:
+                # Auto identity-map for canonical columns present
+                mapping = {col: col for col in CANONICAL_COLUMNS if col in raw.columns}
+                st.info("Auto-mapped columns:")
+                st.json(mapping)
+            canon = coerce_types(raw, mapping)
+            if "datasets" not in st.session_state:
+                st.session_state["datasets"] = {}
+            st.session_state["datasets"][uploaded.name] = canon
+            st.success(f"Mapping applied and dataset '{uploaded.name}' saved!")
+            st.dataframe(canon.head(50), use_container_width=True)
+    except Exception as e:
+        st.error(f"Failed to apply mapping: {e}")
 
 # --- Save preset ---
 preset_name = st.text_input("Preset name")
