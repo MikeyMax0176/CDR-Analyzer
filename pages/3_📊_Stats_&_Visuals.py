@@ -41,8 +41,8 @@ st.subheader("Top Pairs Explorer")
 if not pairs_df.empty and {'caller', 'callee', 'count'}.issubset(pairs_df.columns):
     pairs_df['caller'] = pairs_df['caller'].astype(str)
     pairs_df['callee'] = pairs_df['callee'].astype(str)
-    tab_bar, tab_heatmap, tab_sankey, tab_graph, tab_split, tab_drill = st.tabs([
-        "Bar (Undirected)", "Heatmap (Altair)", "Sankey (Plotly)", "Graph (Graphviz)", "Directional split", "Pair drill-down"])
+    tab_bar, tab_heatmap, tab_sankey, tab_split, tab_drill = st.tabs([
+        "Bar (Undirected)", "Heatmap (Altair)", "Sankey (Plotly)", "Directional split", "Pair drill-down"])
 
     # Bar (Undirected)
     with tab_bar:
@@ -115,22 +115,6 @@ if not pairs_df.empty and {'caller', 'callee', 'count'}.issubset(pairs_df.column
         except Exception as e:
             st.info(f"Plotly not available or error: {e}")
 
-    # Graph (Graphviz)
-    with tab_graph:
-        try:
-            import graphviz
-            g = graphviz.Digraph()
-            g.attr(rankdir='LR')
-            g.attr('node', shape='ellipse')
-            g.attr('edge', fontsize='10')
-            g.attr('graph', dpi='100')
-            g.attr(size='8,5')
-            graph_df = pairs_df.copy().sort_values('count', ascending=False).head(30)
-            for _, row in graph_df.iterrows():
-                g.edge(str(row['caller']), str(row['callee']), label=str(row['count']))
-            st.graphviz_chart(g)
-        except Exception as e:
-            st.info(f"Graphviz not available or error: {e}")
 
     # Directional split
     with tab_split:

@@ -95,9 +95,10 @@ if selected_preset:
     if preset_mapping:
         st.session_state['mapping'] = preset_mapping
 
+import json
 mapping_json = st.text_area(
     "Edit mapping (JSON)",
-    value=str(st.session_state.get('mapping', {})),
+    value=json.dumps(st.session_state.get('mapping', {}), indent=2),
     help="Paste or edit your column mapping here as a JSON dictionary. Example: {'start_time': 'Start', 'caller': 'From', 'callee': 'To', 'CGI': 'CellTower', 'IP': 'IPAddress'}"
 )
 
@@ -134,7 +135,7 @@ if uploaded and st.button("✔️ Apply mapping"):
 preset_name = st.text_input("Preset name")
 if st.button("Save as preset"):
     try:
-        mapping = eval(mapping_json) if mapping_json else {}
+        mapping = json.loads(mapping_json) if mapping_json else {}
         save_schema_preset(DB_PATH, preset_name, mapping)
         st.success(f"Preset '{preset_name}' saved!")
     except Exception as e:
