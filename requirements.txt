@@ -9,4 +9,5 @@ pyvis
 python-louvain
 networkx
 matplotlib
-streamlit-cytoscapejs
+folium
+streamlit-folium
