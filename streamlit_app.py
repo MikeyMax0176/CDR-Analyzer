@@ -87,7 +87,8 @@ if uploaded:
     
     try:
         df = pd.read_csv(uploaded, sep=sep, low_memory=False)
-        st.success(f"✅ Loaded {len(df):,} rows (detected {'TAB' if sep=='\t' else 'COMMA'} separator)")
+        sep_label = {"\t": "TAB", ",": "COMMA", ";": "SEMICOLON", "|": "PIPE"}.get(sep, repr(sep))
+        st.success(f"✅ Loaded {len(df):,} rows (detected {sep_label} separator)")
         
         # Show preview
         st.subheader("📋 Data Preview")
