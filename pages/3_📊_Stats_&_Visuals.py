@@ -2,16 +2,31 @@ import streamlit as st
 import pandas as pd
 from cdr_toolkit.stats import kpis, top_callers, top_pairs, daily_volume, hourly_volume, top_contacts_for
 import io
+import plotly.express as px
 
 st.header("Stats & Visuals")
 
-datasets = st.session_state.get("datasets", {})
-if not datasets:
-    st.info("No datasets loaded in session. Please ingest data first.")
-    st.stop()
+# Prefer active_df if available, otherwise use dataset selection
+if 'active_df' in st.session_state and not st.session_state['active_df'].empty:
+    df = st.session_state['active_df']
+    st.success(f"📊 Using combined filtered dataset ({len(df):,} rows from {df['source'].nunique() if 'source' in df.columns else 1} source(s))")
+    
+    # Show source distribution if multiple sources
+    if 'source' in df.columns and df['source'].nunique() > 1:
+        source_counts = df['source'].value_counts()
+        st.markdown("**Data Sources:**")
+        for source, count in source_counts.items():
+            color = st.session_state.get('filters', {}).get('colors', {}).get(source, '#1f77b4')
+            st.markdown(f"<span style='color: {color}'>●</span> {source}: {count:,} records", unsafe_allow_html=True)
+else:
+    datasets = st.session_state.get("datasets", {})
+    if not datasets:
+        st.info("No datasets loaded in session. Please ingest data first.")
+        st.stop()
 
-dataset_name = st.selectbox("Select dataset", list(datasets.keys()))
-df = datasets[dataset_name]
+    dataset_name = st.selectbox("Select dataset", list(datasets.keys()))
+    df = datasets[dataset_name]
+    st.info("💡 Tip: Use 'Datasets & Filters' page to create a combined filtered dataset for enhanced analysis.")
 
 # KPIs
 metrics = kpis(df)
@@ -147,13 +162,94 @@ st.download_button("Download Top Pairs CSV", pairs_df.to_csv(index=False), "top_
 # Daily Volume
 st.subheader("Daily Volume")
 daily = daily_volume(df)
-st.line_chart(daily)
+
+# Add source-based coloring if multiple sources
+if 'source' in df.columns and df['source'].nunique() > 1:
+    # Group by source and date for colored time series
+    try:
+        # Ensure we have timestamp column
+        timestamp_cols = ['start_time', 'ts', 'timestamp', 'datetime']
+        ts_col = None
+        for col in timestamp_cols:
+            if col in df.columns:
+                ts_col = col
+                break
+        
+        if ts_col:
+            df_ts = df.copy()
+            df_ts['date'] = pd.to_datetime(df_ts[ts_col], errors='coerce').dt.date
+            
+            # Group by source and date
+            source_daily = df_ts.groupby(['source', 'date']).size().reset_index()
+            source_daily.columns = ['source', 'date', 'count']
+            source_daily['date'] = pd.to_datetime(source_daily['date'])
+            
+            # Use stored colors
+            color_map = st.session_state.get('filters', {}).get('colors', {})
+            
+            fig = px.line(
+                source_daily, 
+                x='date', 
+                y='count', 
+                color='source',
+                title="Daily Volume by Source",
+                color_discrete_map=color_map
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.line_chart(daily)
+    except Exception as e:
+        st.line_chart(daily)
+        st.caption(f"Source coloring failed: {e}")
+else:
+    st.line_chart(daily)
+
 st.download_button("Download Daily Volume CSV", daily.to_csv(), "daily_volume.csv")
 
 # Hourly Volume
 st.subheader("Hourly Volume")
 hourly = hourly_volume(df)
-st.bar_chart(hourly)
+
+# Add source-based coloring if multiple sources
+if 'source' in df.columns and df['source'].nunique() > 1:
+    try:
+        # Ensure we have timestamp column
+        timestamp_cols = ['start_time', 'ts', 'timestamp', 'datetime']
+        ts_col = None
+        for col in timestamp_cols:
+            if col in df.columns:
+                ts_col = col
+                break
+        
+        if ts_col:
+            df_ts = df.copy()
+            df_ts['hour'] = pd.to_datetime(df_ts[ts_col], errors='coerce').dt.hour
+            
+            # Group by source and hour
+            source_hourly = df_ts.groupby(['source', 'hour']).size().reset_index()
+            source_hourly.columns = ['source', 'hour', 'count']
+            
+            # Use stored colors
+            color_map = st.session_state.get('filters', {}).get('colors', {})
+            
+            fig = px.bar(
+                source_hourly, 
+                x='hour', 
+                y='count', 
+                color='source',
+                title="Hourly Volume by Source",
+                color_discrete_map=color_map,
+                barmode='stack'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.bar_chart(hourly)
+    except Exception as e:
+        st.bar_chart(hourly)
+        st.caption(f"Source coloring failed: {e}")
+else:
+    st.bar_chart(hourly)
+
 st.download_button("Download Hourly Volume CSV", hourly.to_csv(), "hourly_volume.csv")
 
 # Top Contacts for a Number

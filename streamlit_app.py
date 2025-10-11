@@ -117,11 +117,12 @@ with st.sidebar:
     st.markdown("## 🧭 Navigation Guide")
     st.markdown("""
     1. **📥 Ingest & Map Schema** - Start here
-    2. **🧪 Preview & Quality** - Check data quality  
-    3. **📊 Stats & Visuals** - Explore patterns
-    4. **🌐 Network Explorer** - Analyze connections
-    5. **🗺️ Geofence & Pins** - Map locations
-    6. **🗂️ Cases & Events** - Manage investigations
+    2. **🗃️ Datasets & Filters** - Combine & filter data
+    3. **🧪 Preview & Quality** - Check data quality  
+    4. **📊 Stats & Visuals** - Explore patterns
+    5. **🌐 Network Explorer** - Analyze connections
+    6. **🗺️ Geofence & Pins** - Map locations
+    7. **🗂️ Cases & Events** - Manage investigations
     """)
 
 # Footer with system info
