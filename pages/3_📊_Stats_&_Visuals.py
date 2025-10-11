@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from cdr_toolkit.stats import kpis, top_callers, top_pairs, daily_volume, hourly_volume, top_contacts_for
-from cdr_toolkit.notes_ui import notes_widget
+from cdr_toolkit.notes_ui import notes_widget, case_selector_sidebar
 from cdr_toolkit.storage import migrate_notes_context
 import io
 import plotly.express as px
@@ -10,6 +10,9 @@ import plotly.express as px
 if 'engine' not in st.session_state:
     st.session_state.engine = "cdr_toolkit.db"
 migrate_notes_context(st.session_state.engine)
+
+# Add case selector to sidebar
+case_selector_sidebar()
 
 st.header("Stats & Visuals")
 

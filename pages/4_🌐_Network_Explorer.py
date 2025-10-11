@@ -5,7 +5,7 @@ import base64
 import networkx as nx
 import io
 import json
-from cdr_toolkit.notes_ui import notes_widget
+from cdr_toolkit.notes_ui import notes_widget, case_selector_sidebar
 from cdr_toolkit.storage import migrate_notes_context
 
 # Ensure notes migration
@@ -15,6 +15,9 @@ migrate_notes_context(st.session_state.engine)
 
 # Set wide layout
 st.set_page_config(layout="wide")
+
+# Add case selector to sidebar
+case_selector_sidebar()
 
 # --- Robust Import Guard ---
 try:

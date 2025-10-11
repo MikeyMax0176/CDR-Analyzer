@@ -29,6 +29,10 @@ with st.sidebar:
         selected_case_label = st.selectbox("Select Case", list(case_options.keys()))
         selected_case = case_options[selected_case_label]
         current_case_id = selected_case['id']
+        
+        # Set as active case in session state for use in other pages
+        st.session_state['active_case_id'] = current_case_id
+        
         st.info(f"📁 **{selected_case['name']}**\n\n{selected_case['description']}")
     else:
         st.warning("No cases found. Create one below.")

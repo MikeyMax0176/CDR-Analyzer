@@ -7,8 +7,48 @@ import json
 from typing import Callable, Tuple, Any, Dict
 from cdr_toolkit.storage import (
     add_note_with_context, list_notes, update_note, delete_note, 
-    migrate_notes_context
+    migrate_notes_context, list_cases
 )
+
+
+def case_selector_sidebar():
+    """Display a case selector in the sidebar and set active_case_id"""
+    engine = st.session_state.get('engine', 'cdr_toolkit.db')
+    
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("📁 Active Case")
+        
+        cases = list_cases(engine)
+        if cases:
+            case_options = {f"{case['name']}": case['id'] for case in cases}
+            
+            # Get current selection or default to first
+            current_case_name = None
+            if 'active_case_id' in st.session_state:
+                for case in cases:
+                    if case['id'] == st.session_state['active_case_id']:
+                        current_case_name = case['name']
+                        break
+            
+            if current_case_name and current_case_name in case_options:
+                default_index = list(case_options.keys()).index(current_case_name)
+            else:
+                default_index = 0
+            
+            selected_case_name = st.selectbox(
+                "Select active case for notes",
+                list(case_options.keys()),
+                index=default_index,
+                key="case_selector_sidebar"
+            )
+            
+            st.session_state['active_case_id'] = case_options[selected_case_name]
+            st.caption(f"Case ID: {st.session_state['active_case_id']}")
+        else:
+            st.info("No cases found. Create one in the Cases page.")
+            if 'active_case_id' in st.session_state:
+                del st.session_state['active_case_id']
 
 
 def notes_widget(page_id: str, case_id: int, user: str = None, 
