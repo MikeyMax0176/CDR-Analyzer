@@ -2,6 +2,47 @@ import streamlit as st
 import pandas as pd
 from cdr_toolkit.ingest import validate_cdr
 
+# Helper function to get proper column configuration for CDR dataframes
+def get_cdr_column_config(df):
+    """
+    Get column configuration for CDR dataframes to ensure proper display formatting
+    """
+    column_config = {}
+    
+    # Text columns for identifiers
+    id_columns = ['caller', 'callee', 'imei', 'imsi', 'cell_id', 'lac', 'call_id']
+    for col in id_columns:
+        if col in df.columns:
+            column_config[col] = st.column_config.TextColumn(
+                col.upper(),
+                help=f"{col.upper()} identifier",
+                max_chars=20,
+            )
+    
+    # Number columns with specific formatting
+    if 'duration' in df.columns:
+        column_config['duration'] = st.column_config.NumberColumn(
+            "DURATION",
+            help="Call duration in seconds",
+            format="%.0f"
+        )
+    
+    if 'latitude' in df.columns:
+        column_config['latitude'] = st.column_config.NumberColumn(
+            "LATITUDE", 
+            help="GPS latitude coordinate",
+            format="%.6f"
+        )
+    
+    if 'longitude' in df.columns:
+        column_config['longitude'] = st.column_config.NumberColumn(
+            "LONGITUDE",
+            help="GPS longitude coordinate", 
+            format="%.6f"
+        )
+    
+    return column_config
+
 st.header("Preview & Quality Checks")
 
 # Prefer active_df if available, otherwise use dataset selection
@@ -26,7 +67,8 @@ else:
     df = datasets[dataset_name]
     st.info("💡 Tip: Use 'Datasets & Filters' page to create a combined filtered dataset for enhanced analysis.")
 
-st.dataframe(df.head(200), use_container_width=True)
+column_config = get_cdr_column_config(df)
+st.dataframe(df.head(200), use_container_width=True, column_config=column_config, hide_index=True)
 
 result = validate_cdr(df)
 

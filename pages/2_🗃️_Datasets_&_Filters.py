@@ -5,6 +5,47 @@ from cdr_toolkit.filters import apply_filters, get_dataset_summary, get_top_numb
 import plotly.express as px
 import plotly.graph_objects as go
 
+# Helper function to get proper column configuration for CDR dataframes
+def get_cdr_column_config(df):
+    """
+    Get column configuration for CDR dataframes to ensure proper display formatting
+    """
+    column_config = {}
+    
+    # Text columns for identifiers
+    id_columns = ['caller', 'callee', 'imei', 'imsi', 'cell_id', 'lac', 'call_id']
+    for col in id_columns:
+        if col in df.columns:
+            column_config[col] = st.column_config.TextColumn(
+                col.upper(),
+                help=f"{col.upper()} identifier",
+                max_chars=20,
+            )
+    
+    # Number columns with specific formatting
+    if 'duration' in df.columns:
+        column_config['duration'] = st.column_config.NumberColumn(
+            "DURATION",
+            help="Call duration in seconds",
+            format="%.0f"
+        )
+    
+    if 'latitude' in df.columns:
+        column_config['latitude'] = st.column_config.NumberColumn(
+            "LATITUDE", 
+            help="GPS latitude coordinate",
+            format="%.6f"
+        )
+    
+    if 'longitude' in df.columns:
+        column_config['longitude'] = st.column_config.NumberColumn(
+            "LONGITUDE",
+            help="GPS longitude coordinate", 
+            format="%.6f"
+        )
+    
+    return column_config
+
 st.set_page_config(page_title="Datasets & Filters", page_icon="🗃️", layout="wide")
 st.title("🗃️ Datasets & Filters")
 
@@ -302,7 +343,8 @@ if 'active_df' in st.session_state and not st.session_state['active_df'].empty:
     
     # Data preview
     st.subheader("🔍 Data Preview")
-    st.dataframe(combined_df.head(100), use_container_width=True)
+    column_config = get_cdr_column_config(combined_df)
+    st.dataframe(combined_df.head(100), use_container_width=True, column_config=column_config, hide_index=True)
     
     # Download options
     st.subheader("💾 Download Combined Dataset")

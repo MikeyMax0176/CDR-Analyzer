@@ -436,6 +436,6 @@ if 'caller' in df and 'callee' in df:
                    unsafe_allow_html=True)
     with col5:
         # Add page link to full-screen view (Ctrl/Cmd-click for new tab)
-        st.page_link("pages/5_🖥️_Network_Fullscreen.py", label="🖥️ Full-screen View")
+        st.page_link("pages/6_🖥️_Network_Fullscreen.py", label="🖥️ Full-screen View")
 else:
     st.info("No 'caller' or 'callee' columns found in this dataset.")
