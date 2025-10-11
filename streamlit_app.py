@@ -3,7 +3,7 @@ import subprocess
 import datetime
 import io
 import pandas as pd
-from cdr_toolkit.storage import init_case_schema, init_schema_presets_table
+from cdr_toolkit.storage import init_case_schema, init_schema_presets_table, migrate_notes_context
 
 # Page configuration
 st.set_page_config(
@@ -20,6 +20,7 @@ if 'engine' not in st.session_state:
 # Initialize all schemas
 init_schema_presets_table(st.session_state.engine)
 init_case_schema(st.session_state.engine)
+migrate_notes_context(st.session_state.engine)
 
 st.title("📊 CDR Analyzer")
 st.markdown("Welcome to the CDR (Call Detail Record) Analysis Toolkit")

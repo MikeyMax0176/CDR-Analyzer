@@ -158,8 +158,32 @@ def list_cases(engine) -> List[Dict[str, Any]]:
 
 # === Notes CRUD Operations ===
 
+def migrate_notes_context(engine):
+    """Add new context-aware columns to notes table (idempotent)"""
+    conn = get_connection(engine)
+    with conn:
+        # Check which columns exist
+        cur = conn.execute("PRAGMA table_info(notes)")
+        existing_cols = {row[1] for row in cur.fetchall()}
+        
+        # Add missing columns (idempotent)
+        if 'page' not in existing_cols:
+            conn.execute('ALTER TABLE notes ADD COLUMN page TEXT')
+        if 'anchor' not in existing_cols:
+            conn.execute('ALTER TABLE notes ADD COLUMN anchor TEXT')
+        if 'context_json' not in existing_cols:
+            conn.execute('ALTER TABLE notes ADD COLUMN context_json TEXT')
+        if 'link_url' not in existing_cols:
+            conn.execute('ALTER TABLE notes ADD COLUMN link_url TEXT')
+        if 'tags' not in existing_cols:
+            conn.execute('ALTER TABLE notes ADD COLUMN tags TEXT')
+        if 'pinned' not in existing_cols:
+            conn.execute('ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0')
+        if 'updated_at' not in existing_cols:
+            conn.execute('ALTER TABLE notes ADD COLUMN updated_at TEXT')
+
 def add_note(engine, case_id: int, title: str, content: str) -> int:
-    """Add note to case"""
+    """Add note to case (legacy method for backward compatibility)"""
     conn = get_connection(engine)
     with conn:
         cur = conn.execute('''
@@ -173,22 +197,226 @@ def add_note(engine, case_id: int, title: str, content: str) -> int:
         
         return cur.lastrowid
 
-def list_notes(engine, case_id: int) -> List[Dict[str, Any]]:
-    """List notes for a case"""
+def add_note_with_context(engine, case_id: int, content: str, 
+                         page: str = None, anchor: str = None, 
+                         context_json: str = None, link_url: str = None,
+                         tags: List[str] = None, pinned: bool = False,
+                         user: str = None) -> int:
+    """Add note with context information"""
     conn = get_connection(engine)
-    cur = conn.execute('''
-        SELECT id, title, content, created_at 
-        FROM notes WHERE case_id = ? ORDER BY created_at DESC
-    ''', (case_id,))
-    return [
-        {
+    tags_json = json.dumps(tags or [])
+    
+    with conn:
+        cur = conn.execute('''
+            INSERT INTO notes (case_id, content, page, anchor, context_json, link_url, tags, pinned, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ''', (case_id, content, page, anchor, context_json, link_url, tags_json, 1 if pinned else 0))
+        
+        # Update case timestamp
+        conn.execute('''
+            UPDATE cases SET updated_at = datetime('now') WHERE id = ?
+        ''', (case_id,))
+        
+        return cur.lastrowid
+
+def list_notes(engine, case_id: int = None, page_id: str = None, 
+               pinned_only: bool = False) -> List[Dict[str, Any]]:
+    """List notes for a case and/or page, with optional pinned filter"""
+    conn = get_connection(engine)
+    
+    # Build query dynamically based on filters
+    where_clauses = []
+    params = []
+    
+    if case_id is not None:
+        where_clauses.append("case_id = ?")
+        params.append(case_id)
+    
+    if page_id is not None:
+        where_clauses.append("page = ?")
+        params.append(page_id)
+    
+    if pinned_only:
+        where_clauses.append("pinned = 1")
+    
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+    
+    # First check if new columns exist
+    cur = conn.execute("PRAGMA table_info(notes)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+    has_new_cols = 'page' in existing_cols
+    
+    if has_new_cols:
+        query = f'''
+            SELECT id, case_id, title, content, page, anchor, context_json, 
+                   link_url, tags, pinned, created_at, updated_at
+            FROM notes WHERE {where_sql} 
+            ORDER BY pinned DESC, created_at DESC
+        '''
+    else:
+        query = f'''
+            SELECT id, case_id, title, content, created_at
+            FROM notes WHERE {where_sql}
+            ORDER BY created_at DESC
+        '''
+    
+    cur = conn.execute(query, params)
+    
+    notes = []
+    for row in cur.fetchall():
+        if has_new_cols:
+            note = {
+                'id': row[0],
+                'case_id': row[1],
+                'title': row[2],
+                'content': row[3],
+                'page': row[4],
+                'anchor': row[5],
+                'context_json': row[6],
+                'link_url': row[7],
+                'tags': json.loads(row[8]) if row[8] else [],
+                'pinned': bool(row[9]),
+                'created_at': row[10],
+                'updated_at': row[11]
+            }
+        else:
+            note = {
+                'id': row[0],
+                'case_id': row[1],
+                'title': row[2],
+                'content': row[3],
+                'created_at': row[4],
+                'tags': [],
+                'pinned': False
+            }
+        notes.append(note)
+    
+    return notes
+
+def get_note(engine, note_id: int) -> Dict[str, Any]:
+    """Get a specific note by ID"""
+    conn = get_connection(engine)
+    
+    # Check if new columns exist
+    cur = conn.execute("PRAGMA table_info(notes)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+    has_new_cols = 'page' in existing_cols
+    
+    if has_new_cols:
+        cur = conn.execute('''
+            SELECT id, case_id, title, content, page, anchor, context_json, 
+                   link_url, tags, pinned, created_at, updated_at
+            FROM notes WHERE id = ?
+        ''', (note_id,))
+    else:
+        cur = conn.execute('''
+            SELECT id, case_id, title, content, created_at
+            FROM notes WHERE id = ?
+        ''', (note_id,))
+    
+    row = cur.fetchone()
+    if not row:
+        return None
+    
+    if has_new_cols:
+        return {
             'id': row[0],
-            'title': row[1],
-            'content': row[2], 
-            'created_at': row[3]
+            'case_id': row[1],
+            'title': row[2],
+            'content': row[3],
+            'page': row[4],
+            'anchor': row[5],
+            'context_json': row[6],
+            'link_url': row[7],
+            'tags': json.loads(row[8]) if row[8] else [],
+            'pinned': bool(row[9]),
+            'created_at': row[10],
+            'updated_at': row[11]
         }
-        for row in cur.fetchall()
-    ]
+    else:
+        return {
+            'id': row[0],
+            'case_id': row[1],
+            'title': row[2],
+            'content': row[3],
+            'created_at': row[4],
+            'tags': [],
+            'pinned': False
+        }
+
+def update_note(engine, note_id: int, content: str = None, 
+                tags: List[str] = None, pinned: bool = None) -> bool:
+    """Update a note's content, tags, or pinned status"""
+    conn = get_connection(engine)
+    
+    # Check if new columns exist
+    cur = conn.execute("PRAGMA table_info(notes)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+    has_new_cols = 'page' in existing_cols
+    
+    if not has_new_cols:
+        # If old schema, only update content via title field
+        if content is not None:
+            with conn:
+                conn.execute('UPDATE notes SET content = ? WHERE id = ?', (content, note_id))
+        return True
+    
+    # Build update query dynamically
+    updates = []
+    params = []
+    
+    if content is not None:
+        updates.append("content = ?")
+        params.append(content)
+    
+    if tags is not None:
+        updates.append("tags = ?")
+        params.append(json.dumps(tags))
+    
+    if pinned is not None:
+        updates.append("pinned = ?")
+        params.append(1 if pinned else 0)
+    
+    if not updates:
+        return False
+    
+    updates.append("updated_at = datetime('now')")
+    params.append(note_id)
+    
+    query = f"UPDATE notes SET {', '.join(updates)} WHERE id = ?"
+    
+    with conn:
+        conn.execute(query, params)
+        # Also update case timestamp
+        conn.execute('''
+            UPDATE cases SET updated_at = datetime('now') 
+            WHERE id = (SELECT case_id FROM notes WHERE id = ?)
+        ''', (note_id,))
+    
+    return True
+
+def delete_note(engine, note_id: int) -> bool:
+    """Delete a note by ID"""
+    conn = get_connection(engine)
+    
+    with conn:
+        # Get case_id before deleting
+        cur = conn.execute('SELECT case_id FROM notes WHERE id = ?', (note_id,))
+        row = cur.fetchone()
+        if not row:
+            return False
+        
+        case_id = row[0]
+        
+        # Delete the note
+        conn.execute('DELETE FROM notes WHERE id = ?', (note_id,))
+        
+        # Update case timestamp
+        conn.execute('''
+            UPDATE cases SET updated_at = datetime('now') WHERE id = ?
+        ''', (case_id,))
+    
+    return True
 
 # === Events CRUD Operations ===
 

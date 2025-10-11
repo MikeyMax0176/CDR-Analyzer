@@ -6,13 +6,15 @@ from datetime import datetime
 from cdr_toolkit.storage import (
     init_case_schema, ensure_case, list_cases,
     add_pin, list_pins, add_geofence, list_geofences,
-    add_event, list_events
+    add_event, list_events, migrate_notes_context
 )
+from cdr_toolkit.notes_ui import notes_widget
 
 # Initialize case schema
 if 'engine' not in st.session_state:
     st.session_state.engine = "cdr_toolkit.db"
 init_case_schema(st.session_state.engine)
+migrate_notes_context(st.session_state.engine)
 
 st.set_page_config(page_title="Geofence & Pins", page_icon="🗺️", layout="wide")
 st.title("🗺️ Geofence & Pins")
@@ -311,3 +313,35 @@ st.markdown("""
 - **Case Integration**: All pins, geofences, and events are linked to your selected case
 - **Map Interactions**: Click anywhere on the map to add pins, geofences, or events
 """)
+
+# Notes widget integration
+def make_context():
+    """Capture current map view context for notes"""
+    context = {
+        'center_lat': center_lat if 'center_lat' in locals() else None,
+        'center_lon': center_lon if 'center_lon' in locals() else None,
+        'zoom_level': zoom_level if 'zoom_level' in locals() else None,
+        'pins_count': len(pins) if 'pins' in locals() else 0,
+        'geofences_count': len(geofences) if 'geofences' in locals() else 0,
+    }
+    
+    # Add last clicked location if available
+    if 'clicked_lat' in locals() and 'clicked_lon' in locals():
+        context['last_clicked'] = {
+            'lat': clicked_lat,
+            'lon': clicked_lon
+        }
+    
+    anchor = "geofence-pins"
+    page_file = "pages/6_🗺️_Geofence_&_Pins.py"
+    
+    return (anchor, context, page_file, None)
+
+# Render notes widget if case is active
+if current_case_id:
+    notes_widget(
+        page_id="geofence_pins",
+        case_id=current_case_id,
+        user=st.session_state.get('user'),
+        make_context=make_context
+    )

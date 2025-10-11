@@ -4,13 +4,15 @@ from datetime import datetime, date
 from cdr_toolkit.storage import (
     init_case_schema, ensure_case, list_cases, 
     add_note, list_notes, add_event, list_events,
-    add_pin, list_pins, add_geofence, list_geofences
+    add_pin, list_pins, add_geofence, list_geofences,
+    migrate_notes_context
 )
 
 # Initialize case schema
 if 'engine' not in st.session_state:
     st.session_state.engine = "cdr_toolkit.db"
 init_case_schema(st.session_state.engine)
+migrate_notes_context(st.session_state.engine)
 
 st.set_page_config(page_title="Cases, Notes & Events", page_icon="🗂️", layout="wide")
 st.title("🗂️ Cases, Notes & Events")

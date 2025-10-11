@@ -1,8 +1,15 @@
 import streamlit as st
 import pandas as pd
 from cdr_toolkit.stats import kpis, top_callers, top_pairs, daily_volume, hourly_volume, top_contacts_for
+from cdr_toolkit.notes_ui import notes_widget
+from cdr_toolkit.storage import migrate_notes_context
 import io
 import plotly.express as px
+
+# Ensure notes migration
+if 'engine' not in st.session_state:
+    st.session_state.engine = "cdr_toolkit.db"
+migrate_notes_context(st.session_state.engine)
 
 st.header("Stats & Visuals")
 
@@ -265,3 +272,33 @@ if target:
         dt = pd.to_datetime(df.loc[mask, 'start_time'], errors='coerce')
         per_day = dt.dt.date.value_counts().sort_index()
         st.line_chart(per_day)
+
+# Notes widget integration
+def make_context():
+    """Capture current page context for notes"""
+    dataset_info = {}
+    if 'active_df' in st.session_state and not st.session_state['active_df'].empty:
+        dataset_info['type'] = 'active_df'
+        dataset_info['rows'] = len(st.session_state['active_df'])
+        if 'source' in st.session_state['active_df'].columns:
+            dataset_info['sources'] = st.session_state['active_df']['source'].nunique()
+    else:
+        datasets = st.session_state.get("datasets", {})
+        if datasets and 'dataset_name' in locals():
+            dataset_info['type'] = 'single_dataset'
+            dataset_info['name'] = dataset_name
+    
+    anchor = "stats-visuals"
+    page_file = "pages/3_📊_Stats_&_Visuals.py"
+    
+    return (anchor, dataset_info, page_file, None)
+
+# Render notes widget if case is active
+if st.session_state.get('active_case_id'):
+    notes_widget(
+        page_id="stats_visuals",
+        case_id=st.session_state['active_case_id'],
+        user=st.session_state.get('user'),
+        make_context=make_context
+    )
+
