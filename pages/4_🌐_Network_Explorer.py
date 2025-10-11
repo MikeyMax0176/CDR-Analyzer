@@ -5,9 +5,19 @@ import base64
 import networkx as nx
 import io
 import json
+from cdr_toolkit.notes_ui import notes_widget, case_selector_sidebar
+from cdr_toolkit.storage import migrate_notes_context
+
+# Ensure notes migration
+if 'engine' not in st.session_state:
+    st.session_state.engine = "cdr_toolkit.db"
+migrate_notes_context(st.session_state.engine)
 
 # Set wide layout
 st.set_page_config(layout="wide")
+
+# Add case selector to sidebar
+case_selector_sidebar()
 
 # --- Robust Import Guard ---
 try:
@@ -439,3 +449,42 @@ if 'caller' in df and 'callee' in df:
         st.page_link("pages/5_🖥️_Network_Fullscreen.py", label="🖥️ Full-screen View")
 else:
     st.info("No 'caller' or 'callee' columns found in this dataset.")
+
+# Notes widget integration
+def make_context():
+    """Capture current network view context for notes"""
+    context = {
+        'focus_number': focus_number if 'focus_number' in locals() and focus_number else None,
+        'ego_depth': ego_depth if 'ego_depth' in locals() else None,
+        'min_weight': min_weight if 'min_weight' in locals() else None,
+        'max_edges': max_edges if 'max_edges' in locals() else None,
+    }
+    
+    # Add date range if available
+    if 'start_dt' in locals() and 'end_dt' in locals():
+        context['date_range'] = {
+            'start': str(start_dt),
+            'end': str(end_dt)
+        }
+    
+    # Add path info if available
+    if 'path_from' in locals() and 'path_to' in locals() and path_from and path_to:
+        context['path'] = {
+            'from': path_from,
+            'to': path_to
+        }
+    
+    anchor = "network-explorer"
+    page_file = "pages/4_🌐_Network_Explorer.py"
+    
+    return (anchor, context, page_file, None)
+
+# Render notes widget if case is active
+if st.session_state.get('active_case_id'):
+    notes_widget(
+        page_id="network_explorer",
+        case_id=st.session_state['active_case_id'],
+        user=st.session_state.get('user'),
+        make_context=make_context
+    )
+
