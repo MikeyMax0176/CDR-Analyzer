@@ -8,13 +8,14 @@ from cdr_toolkit.storage import init_case_schema, init_schema_presets_table
 
 
 # Hide any tabs bar mistakenly used as a top ribbon and improve UI spacing/typography
-st.markdown(
-    """
+st.markdown("""
 <style>
-/* Hide any tabs bar mistakenly used as a top ribbon */
+/* Hide any tabs bar (legacy ribbon) */
 .stTabs [role="tablist"] { display: none !important; }
-/* Block container padding */
-.block-container { padding-top: 1rem !important; padding-left: 2.5vw; padding-right: 2.5vw; }
+/* Slim header */
+header[data-testid="stHeader"] { background: transparent; }
+/* Tighten top padding a bit */
+.block-container { padding-top: 1rem; }
 /* Title font size */
 h1, .stApp h1, .stMarkdown h1 { font-size: 2.4rem !important; font-weight: 800 !important; }
 h2, .stApp h2, .stMarkdown h2 { font-size: 1.7rem !important; font-weight: 700 !important; }
@@ -30,9 +31,7 @@ h2, .stApp h2, .stMarkdown h2 { font-size: 1.7rem !important; font-weight: 700 !
     margin-left: -2.5vw !important;
 }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 # Initialize database schemas on app startup
 if "engine" not in st.session_state:
