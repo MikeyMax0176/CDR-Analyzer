@@ -10,10 +10,10 @@ import json
 st.set_page_config(layout="wide")
 
 # --- Robust Import Guard ---
+# Try importing PyVis (critical dependency)
 try:
     from pyvis.network import Network
     import streamlit.components.v1 as components
-    import community as community_louvain
     PYVIS_OK = True
 except ModuleNotFoundError as e:
     PYVIS_OK = False
@@ -22,14 +22,36 @@ except ModuleNotFoundError as e:
     
     Install required packages:
     ```bash
-    pip install pyvis python-louvain networkx
+    pip install pyvis networkx
     ```
     
     Error: {e}
     """)
-    st.stop()
+
+# Try importing Louvain (optional dependency for community detection)
+try:
+    import community as community_louvain
+    LOUVAIN_OK = True
+except ModuleNotFoundError as e:
+    LOUVAIN_OK = False
+    st.warning(f"""
+    **Community Detection (Louvain) Unavailable**
+    
+    Install for enhanced network analysis:
+    ```bash
+    pip install python-louvain
+    ```
+    
+    Note: Network visualization will work, but community detection will be disabled.
+    
+    Error: {e}
+    """)
 
 st.title("🌐 Network Explorer")
+
+# Stop if PyVis is not available (critical dependency)
+if not PYVIS_OK:
+    st.stop()
 
 # Prefer active_df if available, otherwise use dataset selection
 if 'active_df' in st.session_state and not st.session_state['active_df'].empty:
@@ -198,9 +220,9 @@ if 'caller' in df and 'callee' in df:
     # Build NetworkX graph for community detection
     G = nx.from_pandas_edgelist(edge_counts, 'caller', 'callee', 'count')
     
-    # Community detection
+    # Community detection (only if Louvain is available)
     communities = {}
-    if color_by_cluster and len(G.nodes()) > 1:
+    if color_by_cluster and len(G.nodes()) > 1 and LOUVAIN_OK:
         try:
             partition = community_louvain.best_partition(G.to_undirected())
             communities = partition
@@ -208,6 +230,8 @@ if 'caller' in df and 'callee' in df:
             st.info(f"🔍 Found {num_communities} communities using Louvain algorithm")
         except Exception as e:
             st.warning(f"⚠️ Community detection failed: {e}")
+    elif color_by_cluster and not LOUVAIN_OK:
+        st.warning("⚠️ Community detection requires python-louvain. Install it to use this feature.")
     
     # Generate community colors
     community_colors = {}
