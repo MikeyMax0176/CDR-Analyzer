@@ -1,20 +1,41 @@
 import streamlit as st
+st.set_page_config(page_title="Table Dancer — CDR Analyzer", page_icon="🕺", layout="wide")
 import subprocess
 import datetime
 import io
 import pandas as pd
 from cdr_toolkit.storage import init_case_schema, init_schema_presets_table
 
-# Page configuration
-st.set_page_config(
-    page_title="CDR Analyzer",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+
+# Hide any tabs bar mistakenly used as a top ribbon and improve UI spacing/typography
+st.markdown(
+    """
+<style>
+/* Hide any tabs bar mistakenly used as a top ribbon */
+.stTabs [role="tablist"] { display: none !important; }
+/* Block container padding */
+.block-container { padding-top: 1rem !important; padding-left: 2.5vw; padding-right: 2.5vw; }
+/* Title font size */
+h1, .stApp h1, .stMarkdown h1 { font-size: 2.4rem !important; font-weight: 800 !important; }
+h2, .stApp h2, .stMarkdown h2 { font-size: 1.7rem !important; font-weight: 700 !important; }
+/* Metric card font size */
+.stMetric label, .stMetricLabel { font-size: 1.1rem !important; }
+.stMetricValue { font-size: 2.1rem !important; font-weight: 700 !important; }
+/* Table font size */
+.stDataFrame, .stTable, .stMarkdown table { font-size: 1.08rem !important; }
+/* Full width for charts */
+.element-container:has(.stPlotlyChart), .element-container:has(.stDeckGlChart), .element-container:has(.stVegaLiteChart) {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin-left: -2.5vw !important;
+}
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
 # Initialize database schemas on app startup
-if 'engine' not in st.session_state:
+if "engine" not in st.session_state:
     st.session_state.engine = "cdr_toolkit.db"
 
 # Initialize all schemas
@@ -24,15 +45,18 @@ init_case_schema(st.session_state.engine)
 st.title("📊 CDR Analyzer")
 st.markdown("Welcome to the CDR (Call Detail Record) Analysis Toolkit")
 
+
 # Helper function for separator detection
 def best_sep(sample: str):
-    lines = sample.split('\n')[:5]
-    comma_count = sum(line.count(',') for line in lines) / len(lines)
-    tab_count = sum(line.count('\t') for line in lines) / len(lines)
-    return '\t' if tab_count > comma_count else ','
+    lines = sample.split("\n")[:5]
+    comma_count = sum(line.count(",") for line in lines) / len(lines)
+    tab_count = sum(line.count("\t") for line in lines) / len(lines)
+    return "\t" if tab_count > comma_count else ","
+
 
 # Main content area
-st.markdown("""
+st.markdown(
+    """
 ## 🚀 Getting Started
 
 This toolkit provides comprehensive CDR analysis capabilities:
@@ -75,25 +99,26 @@ This toolkit provides comprehensive CDR analysis capabilities:
 ## 📂 Sample Data Upload
 
 Use the uploader below to get started with your CDR data:
-""")
+"""
+)
 
 # File uploader
-uploaded = st.file_uploader("Upload CDR (CSV/TSV/TXT)", type=["csv","tsv","txt"])
+uploaded = st.file_uploader("Upload CDR (CSV/TSV/TXT)", type=["csv", "tsv", "txt"])
 if uploaded:
     # Read sample to detect separator
     sample = uploaded.read(4096).decode("utf-8", errors="ignore")
     sep = best_sep(sample)
     uploaded.seek(0)
-    
+
     try:
         df = pd.read_csv(uploaded, sep=sep, low_memory=False)
         sep_label = {"\t": "TAB", ",": "COMMA", ";": "SEMICOLON", "|": "PIPE"}.get(sep, repr(sep))
         st.success(f"✅ Loaded {len(df):,} rows (detected {sep_label} separator)")
-        
+
         # Show preview
         st.subheader("📋 Data Preview")
         st.dataframe(df.head(50), use_container_width=True)
-        
+
         # Quick stats
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -104,9 +129,11 @@ if uploaded:
             st.metric("Memory Usage", f"{df.memory_usage(deep=True).sum() / 1024**2:.1f} MB")
         with col4:
             st.metric("Null Values", df.isnull().sum().sum())
-        
-        st.info("👈 Navigate to **'Ingest & Map Schema'** in the sidebar to configure column mapping and proceed with analysis.")
-        
+
+        st.info(
+            "👈 Navigate to **'Ingest & Map Schema'** in the sidebar to configure column mapping and proceed with analysis."
+        )
+
     except Exception as e:
         st.error(f"❌ Error reading file: {e}")
         st.info("Please check your file format and try again. Supported formats: CSV, TSV, TXT")
@@ -116,7 +143,8 @@ else:
 # Sidebar navigation guide
 with st.sidebar:
     st.markdown("## 🧭 Navigation Guide")
-    st.markdown("""
+    st.markdown(
+        """
     1. **📥 Ingest & Map Schema** - Start here
     2. **🗃️ Datasets & Filters** - Combine & filter data
     3. **🧪 Preview & Quality** - Check data quality  
@@ -124,7 +152,8 @@ with st.sidebar:
     5. **🌐 Network Explorer** - Analyze connections
     6. **🗺️ Geofence & Pins** - Map locations
     7. **🗂️ Cases & Events** - Manage investigations
-    """)
+    """
+    )
 
 # Footer with system info
 st.markdown("---")
@@ -137,11 +166,13 @@ with col1:
             ts = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
             commit_msg = f"snapshot: {ts}"
             add = subprocess.run(["git", "add", "-A"], capture_output=True, text=True, check=False)
-            commit = subprocess.run(["git", "commit", "-m", commit_msg], capture_output=True, text=True, check=False)
+            commit = subprocess.run(
+                ["git", "commit", "-m", commit_msg], capture_output=True, text=True, check=False
+            )
             push = subprocess.run(["git", "push"], capture_output=True, text=True, check=False)
             if push.returncode == 0:
                 st.success(f"✅ Snapshot saved! Commit: {commit_msg}")
-            elif commit.returncode == 1 and 'nothing to commit' in commit.stderr:
+            elif commit.returncode == 1 and "nothing to commit" in commit.stderr:
                 st.info("ℹ️ No changes to commit.")
             else:
                 st.error(f"❌ Git push failed: {push.stderr}")
@@ -152,10 +183,11 @@ with col2:
     st.markdown("### ℹ️ System Info")
     st.markdown(f"**Database:** `{st.session_state.engine}`")
     st.markdown(f"**Session ID:** `{st.session_state.get('session_id', 'new')}`")
-    
+
     # Database status
     try:
         from cdr_toolkit.storage import list_cases
+
         case_count = len(list_cases(st.session_state.engine))
         st.markdown(f"**Cases:** {case_count}")
     except:

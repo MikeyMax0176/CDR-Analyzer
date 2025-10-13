@@ -1,9 +1,51 @@
+
+
+
 import streamlit as st
+import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from cdr_toolkit.filters import apply_filters, get_dataset_summary, get_top_numbers
+from datetime import datetime
 import plotly.express as px
-import plotly.graph_objects as go
+from cdr_toolkit.filters import apply_filters
+from cdr_toolkit.stats import top_callers
+# Helper: summarize a dataset
+def get_dataset_summary(df):
+    summary = {
+        'total_rows': len(df),
+        'total_cols': len(df.columns),
+        'sources': df["source"].nunique() if "source" in df.columns else 1,
+        'date_range': None,
+        'nulls': int(df.isnull().sum().sum()),
+        'unique_callers': df["caller"].nunique() if "caller" in df.columns else 0,
+        'unique_callees': df["callee"].nunique() if "callee" in df.columns else 0,
+        'total_duration': df["duration"].sum() if "duration" in df.columns else 0,
+    }
+    if "start_time" in df.columns:
+        try:
+            dates = pd.to_datetime(df["start_time"], errors="coerce").dropna()
+            if not dates.empty:
+                summary["date_range"] = (dates.min(), dates.max())
+        except Exception:
+            summary["date_range"] = None
+    return summary
+
+# Helper: render a compact dataset card
+def render_dataset_card(name, df):
+    summary = get_dataset_summary(df)
+    st.metric("Rows", f"{summary['total_rows']:,}")
+    st.metric("Columns", f"{summary['total_cols']}")
+    if summary['date_range']:
+        start_date = summary['date_range'][0].strftime('%Y-%m-%d')
+        end_date = summary['date_range'][1].strftime('%Y-%m-%d')
+        st.markdown(f"**Date Range:** {start_date} to {end_date}")
+    st.markdown(f"**Sources:** {summary['sources']}")
+    st.markdown(f"**Nulls:** {summary['nulls']:,}")
+    if summary['unique_callers'] > 0:
+        st.markdown(f"**Unique Callers:** {summary['unique_callers']:,}")
+    if summary['unique_callees'] > 0:
+        st.markdown(f"**Unique Callees:** {summary['unique_callees']:,}")
+    if summary['total_duration'] > 0:
+        st.markdown(f"**Total Duration:** {summary['total_duration']:,} s")
 
 # Helper function to get proper column configuration for CDR dataframes
 def get_cdr_column_config(df):
@@ -46,8 +88,9 @@ def get_cdr_column_config(df):
     
     return column_config
 
-st.set_page_config(page_title="Datasets & Filters", page_icon="🗃️", layout="wide")
 st.title("🗃️ Datasets & Filters")
+from cdr_toolkit.ui import render_snapshot_button
+render_snapshot_button()
 
 # Initialize session state for filters
 if 'filters' not in st.session_state:
@@ -171,18 +214,7 @@ for i, (dataset_name, df) in enumerate(datasets.items()):
                 dataset_colors[dataset_name] = color
             
             # Dataset summary
-            summary = get_dataset_summary(df)
-            st.metric("Rows", f"{summary['total_rows']:,}")
-            
-            if summary['date_range']:
-                start_date = summary['date_range'][0].strftime('%Y-%m-%d')
-                end_date = summary['date_range'][1].strftime('%Y-%m-%d')
-                st.markdown(f"**Date Range:** {start_date} to {end_date}")
-            
-            if summary['unique_callers'] > 0:
-                st.markdown(f"**Unique Callers:** {summary['unique_callers']:,}")
-            if summary['unique_callees'] > 0:
-                st.markdown(f"**Unique Callees:** {summary['unique_callees']:,}")
+            render_dataset_card(dataset_name, df)
 
 # Update session state
 st.session_state.filters['enabled_sources'] = enabled_sources
@@ -201,7 +233,8 @@ with col1:
         enabled_dfs = [datasets[name] for name in enabled_sources]
         if enabled_dfs:
             combined_sample = pd.concat(enabled_dfs, ignore_index=True)
-            top_numbers = get_top_numbers(combined_sample, top_n=20)
+            top_numbers_df = top_callers(combined_sample, n=20)
+            top_numbers = {'top_numbers': top_numbers_df['caller'].tolist() if not top_numbers_df.empty else []}
             
             if top_numbers['top_numbers']:
                 st.markdown("**Most frequent numbers across all enabled datasets:**")
@@ -392,11 +425,16 @@ else:
 
 # Footer
 st.markdown("---")
-st.markdown("""
-**💡 Tips:**
-- **Enable Datasets**: Select which data sources to include in your analysis
-- **Color Coding**: Assign colors to distinguish between data sources in visualizations
-- **Mute Numbers**: Exclude specific phone numbers from analysis (useful for test numbers, system numbers, etc.)
-- **Time Filters**: Focus on specific time periods across all datasets
-- **Combined Dataset**: The filtered dataset will be available in other analysis pages
-""")
+st.markdown(
+    """
+**💡 Tips**
+- **AI Auto-Map**: Let AI suggest column mappings from names/patterns.
+- **Presets**: Save mapping presets and reuse them on similar CDRs.
+- **Validation**: Use the Preview & Quality Checks page to catch issues early.
+- **Combine Sources**: Build a filtered, combined dataset here and use it in Graphs/Maps.
+"""
+)
+
+# --- Notes System ---
+from cdr_toolkit.notes import render_notes
+render_notes(case_id=None, page="Datasets & Filters", context={})
