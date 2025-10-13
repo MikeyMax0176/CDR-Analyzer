@@ -203,7 +203,11 @@ for _, row in edge_df.iterrows():
                 label=str(row['weight']))
 
 # Save and display network
-net.save("cdr_network.html")
+try:
+    net.save("cdr_network.html")
+except AttributeError:
+    # Alternative method for older PyVis versions
+    net.write_html("cdr_network.html")
 
 # Read the HTML file and display
 with open("cdr_network.html", "r", encoding="utf-8") as f:
