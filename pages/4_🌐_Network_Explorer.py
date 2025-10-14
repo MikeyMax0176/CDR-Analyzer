@@ -19,8 +19,8 @@ LOUVAIN_OK = True
 try:
     import community as community_louvain
 except Exception as e:
-    st.warning(f"Louvain community detection not available. Install with: pip install python-louvain\nError: {e}")
     LOUVAIN_OK = False
+    st.warning("Louvain community detection not available. Install with: pip install python-louvain\n\nError: " + str(e))
 
 # Before rendering the graph, check PyVis
 if not PYVIS_OK:
@@ -30,7 +30,7 @@ st.title("🌐 Network Explorer")
 
 # Tool ribbon - custom controls
 with st.container():
-    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         physics = st.checkbox("Physics", value=True)
@@ -40,6 +40,9 @@ with st.container():
         labels = st.checkbox("Labels", value=True)
     with col4:
         show_toolbar = st.checkbox("Show toolbar", value=False)
+    
+    # Second row
+    col5, col6, col7, col8 = st.columns(4)
     with col5:
         focus_number = st.text_input("Focus number", placeholder="1234567890")
     with col6:
@@ -48,6 +51,12 @@ with st.container():
         edge_min_weight = st.number_input("Edge min weight", min_value=1, value=1)
     with col8:
         max_edges = st.number_input("Max edges", min_value=10, value=1000)
+    
+    # Third row - conditional controls
+    if LOUVAIN_OK:
+        color_by_cluster = st.checkbox("Color by cluster", value=False, help="Use Louvain community detection to color nodes by cluster")
+    else:
+        color_by_cluster = False
 
 # Get the active dataset
 df = None
@@ -142,7 +151,7 @@ G = nx.from_pandas_edgelist(edge_df, source='caller', target='callee',
 
 # Louvain community detection (optional coloring)
 node_colors = {}
-if LOUVAIN_OK and len(G.nodes()) > 1:
+if LOUVAIN_OK and color_by_cluster and G.number_of_nodes() > 1:
     try:
         # Convert to undirected for community detection
         G_undirected = G.to_undirected()
@@ -203,23 +212,30 @@ for _, row in edge_df.iterrows():
                 label=str(row['weight']))
 
 # Save and display network
+graph_filename = "cdr_network.html"
 try:
-    net.save("cdr_network.html")
+    net.save_graph(graph_filename)
 except AttributeError:
-    # Alternative method for older PyVis versions
-    net.write_html("cdr_network.html")
+    try:
+        net.save(graph_filename)
+    except AttributeError:
+        # Alternative method for older PyVis versions
+        net.write_html(graph_filename)
 
 # Read the HTML file and display
-with open("cdr_network.html", "r", encoding="utf-8") as f:
+with open(graph_filename, "r", encoding="utf-8") as f:
     html_content = f.read()
 
 components.html(html_content, height=600, scrolling=True)
 
-# Provide full-screen link
-html_b64 = base64.b64encode(html_content.encode()).decode()
-data_url = f"data:text/html;base64,{html_b64}"
-st.markdown(f'<a href="{data_url}" target="_blank">🖥️ Open full-screen</a>', 
-           unsafe_allow_html=True)
+# Build data URL and expose NEW-TAB openers
+encoded = base64.b64encode(html_content.encode("utf-8")).decode("ascii")
+data_url = f"data:text/html;base64,{encoded}"
+st.link_button("🖥️ Open Network (Fullscreen)", data_url, help="Opens in a new browser tab")
+st.markdown(f'<a href="{data_url}" target="_blank" rel="noopener noreferrer">🔗 Open full-screen in new tab</a>', unsafe_allow_html=True)
+
+# Save html_content to session for Network Fullscreen launcher page
+st.session_state["last_net_html"] = html_content
 
 # Download options
 col1, col2 = st.columns(2)
@@ -242,7 +258,7 @@ viz_option = st.selectbox(
 
 if viz_option == "Top Pairs":
     st.write("**Top 20 Caller-Callee Pairs**")
-    top_pairs = edge_df.head(20)
+    top_pairs = edge_df.head(20).copy()
     top_pairs['pair'] = top_pairs['caller'] + ' → ' + top_pairs['callee']
     st.dataframe(top_pairs[['pair', 'weight']])
     st.bar_chart(top_pairs.set_index('pair')['weight'])
