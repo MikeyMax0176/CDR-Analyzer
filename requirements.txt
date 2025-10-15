@@ -16,3 +16,5 @@ networkx
 matplotlib
 folium
 streamlit-folium
+
+python-louvain>=0.16

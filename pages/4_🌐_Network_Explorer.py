@@ -1,9 +1,14 @@
+import numpy as np
+import random
+
 import streamlit as st
 import pandas as pd
 import networkx as nx
-import base64
 import json
+import base64
 from datetime import datetime, timedelta
+import itertools
+
 
 # Robust dependency guard for pyvis
 PYVIS_OK = True
@@ -22,48 +27,52 @@ except Exception as e:
     LOUVAIN_OK = False
     st.warning("Louvain community detection not available. Install with: pip install python-louvain\n\nError: " + str(e))
 
-# Before rendering the graph, check PyVis
 if not PYVIS_OK:
     st.stop()
 
+
 st.title("🌐 Network Explorer")
 
-# Tool ribbon - custom controls
+# --- TOOL RIBBON ---
 with st.container():
-    col1, col2, col3, col4 = st.columns(4)
-    
+    col1, col2, col3, col4, col5 = st.columns([2,2,2,2,2])
     with col1:
-        physics = st.checkbox("Physics", value=True)
+        physics_preset = st.radio("Physics preset", ["Stable (freeze)", "Exploration"], index=0)
     with col2:
-        freeze = st.checkbox("Freeze positions", value=False)
+        lock_all = st.checkbox("Lock all", value=False)
+        unlock_all = st.checkbox("Unlock all", value=False)
     with col3:
-        labels = st.checkbox("Labels", value=True)
+        show_labels = st.toggle("Show labels", value=True)
+        show_toolbar = st.checkbox("Toolbar", value=False)
     with col4:
-        show_toolbar = st.checkbox("Show toolbar", value=False)
-    
-    # Second row
-    col5, col6, col7, col8 = st.columns(4)
-    with col5:
         focus_number = st.text_input("Focus number", placeholder="1234567890")
-    with col6:
         ego_depth = st.selectbox("Ego depth", [1, 2], index=0)
-    with col7:
-        edge_min_weight = st.number_input("Edge min weight", min_value=1, value=1)
-    with col8:
-        max_edges = st.number_input("Max edges", min_value=10, value=1000)
-    
-    # Third row - conditional controls
+    with col5:
+        min_weight = st.number_input("Edge min weight", min_value=1, value=1)
+        max_edges = st.number_input("Max edges", min_value=10, value=500)
+    # Advanced physics controls
+    colA, colB = st.columns([1,1])
+    with colA:
+        freeze_after_stabilize = st.toggle("Freeze after stabilize", value=True, help="When enabled, uses a precomputed layout and disables live physics.")
+    with colB:
+        jitter_clicked = st.button("Jitter 5%", help="Randomly jitter current positions by ±5% (non-exploration presets)")
+    # Louvain toggle
     if LOUVAIN_OK:
         color_by_cluster = st.checkbox("Color by cluster", value=False, help="Use Louvain community detection to color nodes by cluster")
     else:
         color_by_cluster = False
 
-# Get the active dataset
+
+
+
+# --- SIDEBAR FILTERS ---
+with st.sidebar:
+    st.header("Filters")
+
 df = None
 if 'active_df' in st.session_state and not st.session_state['active_df'].empty:
     df = st.session_state['active_df'].copy()
 elif 'datasets' in st.session_state and st.session_state.datasets:
-    # Use first available dataset if no active one
     dataset_name = list(st.session_state.datasets.keys())[0]
     df = st.session_state.datasets[dataset_name].copy()
 
@@ -71,147 +80,272 @@ if df is None or df.empty:
     st.warning("⚠️ No data available. Please load and filter data in the 'Datasets & Filters' page first.")
     st.stop()
 
-# Date range filter if start_time exists
-if 'start_time' in df.columns:
-    st.subheader("📅 Time Filter")
-    try:
-        df['start_time'] = pd.to_datetime(df['start_time'], errors='coerce')
-        df = df.dropna(subset=['start_time'])
-        
-        if not df.empty:
-            min_date = df['start_time'].min().date()
-            max_date = df['start_time'].max().date()
-            
-            date_range = st.slider(
-                "Select date range",
-                min_value=min_date,
-                max_value=max_date,
-                value=(min_date, max_date),
-                format="YYYY-MM-DD"
-            )
-            
-            # Filter by date range
-            start_dt = pd.Timestamp(date_range[0])
-            end_dt = pd.Timestamp(date_range[1]) + timedelta(days=1)
-            df = df[(df['start_time'] >= start_dt) & (df['start_time'] < end_dt)]
-    except Exception as e:
-        st.info(f"Date filtering not available: {e}")
+# Source filter
+if 'source' in df.columns:
+    all_sources = sorted(df['source'].dropna().unique())
+    selected_sources = st.multiselect("Data sources", all_sources, default=all_sources)
+    color_by_source = st.checkbox("Color by source", value=False)
+    df = df[df['source'].isin(selected_sources)]
+else:
+    color_by_source = False
 
-# Build edge table from caller-callee pairs
+# Call type filter (only if manageable unique values)
+if 'call_type' in df.columns:
+    all_types = sorted(df['call_type'].dropna().unique())
+    if len(all_types) <= 20:
+        selected_types = st.multiselect("Call types", all_types, default=all_types)
+        df = df[df['call_type'].isin(selected_types)]
+
+# Direction filter (only if manageable unique values)
+if 'direction' in df.columns:
+    all_dirs = sorted(df['direction'].dropna().unique())
+    if len(all_dirs) <= 20:
+        selected_dirs = st.multiselect("Directions", all_dirs, default=all_dirs)
+        df = df[df['direction'].isin(selected_dirs)]
+
+# Date range filter with robust timezone/empty handling
+if 'start_time' in df.columns:
+    ts_utc = pd.to_datetime(df['start_time'], errors="coerce", utc=True)
+    ts = ts_utc.dt.tz_convert(None)
+    valid = ts.dropna()
+    if not valid.empty:
+        min_dt = valid.min().to_pydatetime()
+        max_dt = valid.max().to_pydatetime()
+        if min_dt == max_dt:
+            max_dt = min_dt + pd.Timedelta(days=1)
+        start_dt, end_dt = st.slider(
+            "Date range",
+            min_value=min_dt,
+            max_value=max_dt,
+            value=(min_dt, max_dt),
+            format="YYYY-MM-DD",
+        )
+        mask = (ts >= pd.Timestamp(start_dt)) & (ts <= pd.Timestamp(end_dt))
+        df = df.loc[mask]
+    else:
+        st.info("No valid timestamps to filter.")
+
+# --- BUILD EDGES ---
+# Only keep rows matching all filters above
 if 'caller' not in df.columns or 'callee' not in df.columns:
     st.error("Dataset must have 'caller' and 'callee' columns for network analysis.")
     st.stop()
 
-# Group by caller-callee pairs and count
-edge_df = df.groupby(['caller', 'callee']).size().reset_index(name='weight')
-edge_df = edge_df[edge_df['weight'] >= edge_min_weight]
-edge_df = edge_df.sort_values('weight', ascending=False).head(max_edges)
+edge_df = df.groupby(['caller', 'callee']).size().reset_index(name='count')
+edge_df = edge_df[edge_df['caller'] != edge_df['callee']]  # Drop self-loops
+edge_df = edge_df[edge_df['count'] >= min_weight]
+edge_df = edge_df.sort_values('count', ascending=False).head(max_edges)
+
+# Ego filter
+if focus_number.strip():
+    focus = focus_number.strip()
+    if ego_depth == 1:
+        ego_edges = edge_df[(edge_df['caller'] == focus) | (edge_df['callee'] == focus)]
+    else:
+        # 2-hop ego network
+        direct = set(edge_df[(edge_df['caller'] == focus) | (edge_df['callee'] == focus)]['caller'].tolist() + edge_df[(edge_df['caller'] == focus) | (edge_df['callee'] == focus)]['callee'].tolist())
+        ego_edges = edge_df[edge_df['caller'].isin(direct) | edge_df['callee'].isin(direct)]
+    edge_df = ego_edges
 
 if edge_df.empty:
     st.warning("No edges found with the current filters.")
     st.stop()
 
-# Focus on ego network if specified
-if focus_number.strip():
-    focus = focus_number.strip()
-    
-    # Get ego network
-    if ego_depth == 1:
-        # Direct connections only
-        ego_edges = edge_df[
-            (edge_df['caller'] == focus) | 
-            (edge_df['callee'] == focus)
-        ]
-    else:  # ego_depth == 2
-        # Two-hop network
-        direct_neighbors = set()
-        direct_edges = edge_df[
-            (edge_df['caller'] == focus) | 
-            (edge_df['callee'] == focus)
-        ]
-        for _, row in direct_edges.iterrows():
-            direct_neighbors.add(row['caller'])
-            direct_neighbors.add(row['callee'])
-        
-        # Find edges involving direct neighbors
-        ego_edges = edge_df[
-            edge_df['caller'].isin(direct_neighbors) | 
-            edge_df['callee'].isin(direct_neighbors)
-        ]
-    
-    edge_df = ego_edges
+# Node weights
+node_weights = edge_df['caller'].value_counts() + edge_df['callee'].value_counts()
+node_weights = node_weights.fillna(0)
 
-if edge_df.empty:
-    st.warning(f"No connections found for {focus_number}")
-    st.stop()
+def build_layout(G: nx.Graph, preset: str, focus_number: str | None) -> tuple[dict | None, dict | None]:
+    """Return (positions, vis_layout) for the given preset. Mutually exclusive behavior."""
+    if preset == "Exploration":
+        return None, None
+    elif preset == "Stable (freeze)":
+        pos = nx.spring_layout(G, seed=42, iterations=250)
+        # Scale to pixels
+        scaled_pos = {}
+        for n, (x, y) in pos.items():
+            scaled_pos[n] = (int(x * 800), int(y * 800))
+        return scaled_pos, None
+    else:
+        return None, None
 
-# Create NetworkX graph for analysis
-G = nx.from_pandas_edgelist(edge_df, source='caller', target='callee', 
-                           edge_attr='weight', create_using=nx.DiGraph())
+# --- BUILD GRAPH ---
+G = nx.from_pandas_edgelist(edge_df, source='caller', target='callee', edge_attr='count', create_using=nx.DiGraph())
+G_undirected = G.to_undirected()
 
-# Louvain community detection (optional coloring)
+# --- COMMUNITY DETECTION ---
+partition = None
 node_colors = {}
 if LOUVAIN_OK and color_by_cluster and G.number_of_nodes() > 1:
     try:
-        # Convert to undirected for community detection
-        G_undirected = G.to_undirected()
         partition = community_louvain.best_partition(G_undirected)
-        
-        # Assign colors based on community
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
-                 '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
-        
-        for node, community_id in partition.items():
-            node_colors[node] = colors[community_id % len(colors)]
+        palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+        for node, comm in partition.items():
+            node_colors[node] = palette[comm % len(palette)]
     except Exception as e:
         st.info(f"Community detection not available: {e}")
 
-# Create PyVis network
+# --- COLOR BY SOURCE ---
+source_colors = {}
+if color_by_source and 'source' in df.columns:
+    palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+    sources = sorted(df['source'].dropna().unique())
+    for i, s in enumerate(sources):
+        source_colors[s] = palette[i % len(palette)]
+    st.session_state['source_colors'] = source_colors
+else:
+    source_colors = st.session_state.get('source_colors', {})
+
+# --- POSITIONS AND PHYSICS ---
+focus_clean = (focus_number.strip() or None)
+positions, vis_layout = build_layout(G_undirected, physics_preset, focus_clean)
+
+# Apply jitter if requested (only when we have positions)
+if "_pos_cache" not in st.session_state:
+    st.session_state["_pos_cache"] = None
+if positions:
+    st.session_state["_pos_cache"] = positions.copy()
+if jitter_clicked and st.session_state.get("_pos_cache"):
+    base = st.session_state["_pos_cache"]
+    jittered = {}
+    for n, (x, y) in base.items():
+        fx = 1.0 + random.uniform(-0.05, 0.05)
+        fy = 1.0 + random.uniform(-0.05, 0.05)
+        jittered[n] = (int(x * fx), int(y * fy))
+    positions = jittered
+    st.session_state["_pos_cache"] = jittered.copy()
+
+
+# --- PYVIS NETWORK ---
+from pyvis.network import Network
 net = Network(height="78vh", width="100%", directed=True)
 
-# Set PyVis options for interactivity
-options = {
-    "physics": {
-        "enabled": bool(physics and not freeze),
-        "stabilization": {"enabled": True, "iterations": 150}
-    },
-    "interaction": {
-        "dragNodes": not freeze,
-        "hover": True
-    },
-    "edges": {"smooth": True},
-    "nodes": {"chosen": True}
+# Build options without conflicts
+opts = {
+    "interaction": {"dragNodes": True, "hover": True},
+    "nodes": {"chosen": True},
+    "edges": {"smooth": True}
 }
 
-if not labels:
-    options["nodes"] = {"font": {"size": 0}}
+# Physics
+live_physics = physics_preset == "Exploration" and not freeze_after_stabilize
+if live_physics:
+    opts["physics"] = {
+        "enabled": True,
+        "solver": "barnesHut",
+        "barnesHut": {
+            "gravitationalConstant": -2000,
+            "centralGravity": 0.05,
+            "springLength": 80,
+            "springConstant": 0.03,
+            "avoidOverlap": 0.3
+        },
+        "timestep": 0.4,
+        "damping": 0.85,
+        "maxVelocity": 20,
+        "minVelocity": 1,
+        "stabilization": {"enabled": True, "iterations": 200}
+    }
+else:
+    opts["physics"] = {"enabled": False}
 
-net.set_options(json.dumps(options))
+# Labels
+if not show_labels:
+    opts["nodes"]["font"] = {"size": 0}
 
-if show_toolbar:
-    net.show_buttons(["physics", "interaction", "layout", "nodes", "edges"])
+# No hierarchical layout in this version
 
-# Add nodes with community colors if available
+
+# Always pass JSON string to set_options
+net.set_options(json.dumps(opts))
+
+# Toolbar with error protection
+try:
+    if show_toolbar:
+        net.show_buttons(filter_=['physics','interaction','layout','nodes','edges'])
+except Exception as e:
+    st.warning(f"Toolbar unavailable: {e}")
+
+    # --- ADD NODES ---
 for node in G.nodes():
-    color = node_colors.get(node, '#1f77b4')
-    label = str(node) if labels else ""
+    # Node size by degree
+    degree = node_weights.get(node, 1)
+    size = min(max(12, degree * 2), 60)
     
-    # Node positioning
-    node_options = {"physics": not freeze}
-    if freeze:
-        node_options["fixed"] = {'x': True, 'y': True}
-    else:
-        node_options["fixed"] = False
+    # Node color
+    color = '#1f77b4'
+    if color_by_source and 'source' in df.columns:
+        # Use first source for this node
+        sources = df[(df['caller'] == node) | (df['callee'] == node)]['source'].unique()
+        if len(sources) > 0:
+            color = source_colors.get(sources[0], '#1f77b4')
+    elif color_by_cluster and node in node_colors:
+        color = node_colors[node]
     
-    net.add_node(node, label=label, color=color, **node_options)
+    # Node label
+    label = str(node) if show_labels else ""
+    
+    # Base properties
+    base_props = {
+        "label": label,
+        "size": size,
+        "color": color,
+        "physics": live_physics,
+        "fixed": False
+    }
+    
+    # Node images (feature removed)
+    
+    # Tooltip with call stats
+    first_ts = "Unknown"
+    last_ts = "Unknown"
+    if 'start_time' in df.columns:
+        node_calls = df[(df['caller'] == node) | (df['callee'] == node)]
+        if not node_calls.empty:
+            try:
+                timestamps = pd.to_datetime(node_calls['start_time'], errors='coerce').dropna()
+                if not timestamps.empty:
+                    first_ts = timestamps.min().strftime('%Y-%m-%d %H:%M')
+                    last_ts = timestamps.max().strftime('%Y-%m-%d %H:%M')
+            except Exception:
+                pass
+    
+    base_props["title"] = f"Total calls: {degree}\\nFirst seen: {first_ts}\\nLast seen: {last_ts}"
+    
+    # Position handling
+    if positions is not None:  # Non-hierarchical presets or frozen exploration
+        xy = positions.get(node, (0, 0))
+        base_props["x"] = xy[0]
+        base_props["y"] = xy[1]
+        base_props["physics"] = False  # Force physics off to prevent re-layout
+    
+    # Lock/Unlock overrides
+    if lock_all:
+        base_props["fixed"] = {"x": True, "y": True}
+        base_props["physics"] = False
+    elif unlock_all:
+        base_props["fixed"] = False
+    
+    net.add_node(node, **base_props)
 
-# Add edges
+    # --- ADD EDGES ---
 for _, row in edge_df.iterrows():
-    net.add_edge(row['caller'], row['callee'], 
-                width=min(row['weight'] / 2, 10),  # Scale edge width
-                label=str(row['weight']))
+    src, tgt, weight = row['caller'], row['callee'], row['count']
+    edge_opts = {"width": min(weight / 2, 10), "label": str(weight)}
+    # Edge color
+    if focus_number.strip():
+        if src == focus_number.strip():
+            edge_opts["color"] = "#2ca02c"  # outbound green
+        elif tgt == focus_number.strip():
+            edge_opts["color"] = "#d62728"  # inbound red
+        else:
+            edge_opts["color"] = "#1f77b4"
+    else:
+        edge_opts["color"] = "#1f77b4"
+    net.add_edge(src, tgt, **edge_opts)
 
-# Save and display network
+
+# --- SAVE + EMBED + FULLSCREEN ---
 graph_filename = "cdr_network.html"
 try:
     net.save_graph(graph_filename)
@@ -219,85 +353,30 @@ except AttributeError:
     try:
         net.save(graph_filename)
     except AttributeError:
-        # Alternative method for older PyVis versions
         net.write_html(graph_filename)
-
-# Read the HTML file and display
 with open(graph_filename, "r", encoding="utf-8") as f:
     html_content = f.read()
-
 components.html(html_content, height=600, scrolling=True)
-
-# Build data URL and expose NEW-TAB openers
 encoded = base64.b64encode(html_content.encode("utf-8")).decode("ascii")
 data_url = f"data:text/html;base64,{encoded}"
 st.link_button("🖥️ Open Network (Fullscreen)", data_url, help="Opens in a new browser tab")
-st.markdown(f'<a href="{data_url}" target="_blank" rel="noopener noreferrer">🔗 Open full-screen in new tab</a>', unsafe_allow_html=True)
-
-# Save html_content to session for Network Fullscreen launcher page
 st.session_state["last_net_html"] = html_content
 
-# Download options
-col1, col2 = st.columns(2)
-with col1:
-    nodes_df = pd.DataFrame(list(G.nodes()), columns=['node'])
-    nodes_csv = nodes_df.to_csv(index=False)
-    st.download_button("📥 Download nodes.csv", nodes_csv, "nodes.csv", "text/csv")
-
-with col2:
-    edges_csv = edge_df.to_csv(index=False)
-    st.download_button("📥 Download edges.csv", edges_csv, "edges.csv", "text/csv")
-
-# Data Viz Toolbox
-st.subheader("📊 Data Viz Toolbox")
-
-viz_option = st.selectbox(
-    "Choose visualization:",
-    ["Top Pairs", "Top Callers", "Degree Distribution", "Time Series"]
-)
-
-if viz_option == "Top Pairs":
-    st.write("**Top 20 Caller-Callee Pairs**")
-    top_pairs = edge_df.head(20).copy()
-    top_pairs['pair'] = top_pairs['caller'] + ' → ' + top_pairs['callee']
-    st.dataframe(top_pairs[['pair', 'weight']])
-    st.bar_chart(top_pairs.set_index('pair')['weight'])
-
-elif viz_option == "Top Callers":
-    st.write("**Top 20 Callers by Total Calls**")
-    caller_stats = edge_df.groupby('caller')['weight'].sum().sort_values(ascending=False).head(20)
-    st.bar_chart(caller_stats)
-
-elif viz_option == "Degree Distribution":
-    st.write("**Network Degree Distribution**")
-    degrees = dict(G.degree())
-    degree_counts = pd.Series(degrees).value_counts().sort_index()
-    st.bar_chart(degree_counts)
-
-elif viz_option == "Time Series":
-    if 'start_time' in df.columns:
-        st.write("**Daily Call Volume**")
-        try:
-            daily_calls = df.set_index('start_time').resample('D').size()
-            st.line_chart(daily_calls)
-        except Exception as e:
-            st.info(f"Time series not available: {e}")
-    else:
-        st.info("Time series requires 'start_time' column in the dataset.")
-
-# Network stats
+# --- QUICK STATS ---
 st.subheader("📈 Network Statistics")
 col1, col2, col3, col4 = st.columns(4)
-
 with col1:
     st.metric("Nodes", len(G.nodes()))
 with col2:
     st.metric("Edges", len(G.edges()))
 with col3:
-    if len(G.nodes()) > 0:
-        avg_degree = sum(dict(G.degree()).values()) / len(G.nodes())
-        st.metric("Avg Degree", f"{avg_degree:.1f}")
+    st.metric("Total Calls", int(edge_df['count'].sum()))
 with col4:
-    if LOUVAIN_OK and 'partition' in locals():
-        num_communities = len(set(partition.values()))
-        st.metric("Communities", num_communities)
+    if LOUVAIN_OK and partition:
+        st.metric("Communities", len(set(partition.values())))
+
+"""
+Below this point previously existed a duplicated, older implementation of the page
+that conflicted with the new filters and graph builder. It has been removed to
+avoid double-rendering and widget conflicts.
+"""
